@@ -1,0 +1,71 @@
+#!/bin/env lua
+local root = os.getenv("UNPKG_ROOT")
+local cache = os.getenv("UNPKG_CACHE")
+package.path = package.path .. ";" .. root .. "/unpkg/pkgs/?.lua"
+
+local function getPkg(pkg)
+	local file = io.open(cache .. "/" .. pkg.name .. ".unpkg", "r")
+	if file then
+		file:close()
+		return true
+	end
+	-- TODO P2P package sharing
+	return false
+end
+
+local function createSHA256(pkg)
+	return os.execute(
+		"echo -n "
+			.. cache
+			.. "/"
+			.. pkg.name
+			.. ".unpkg | sha256sum | cut -d ' ' -f1 > "
+			.. cache
+			.. "/"
+			.. pkg.name
+			.. ".unpkg.sha256"
+	)
+end
+
+local function makePkg(pkg)
+	os.execute("cd " .. pkg.outDir .. "&& tar -czvf " .. cache .. "/" .. pkg.name .. ".unpkg *")
+	return createSHA256(pkg)
+end
+
+local function checkSHA256(pkg)
+	local localSHA =
+		os.getenv("$(echo -n " .. cache .. "/" .. pkg.name .. ".unpkg.sha256 | sha256sum | cut -d ' ' -f1)")
+	local pkgSHA = os.getenv("$(cat " .. cache .. "/" .. pkg.name .. ".unpkg.sha256)")
+	if pkgSHA == localSHA then
+		return true
+	end
+	return false
+end
+
+local function installPkg(pkg)
+	return os.execute("tar -xzvf " .. cache .. "/" .. pkg.name .. ".unpkg" .. " -C " .. root .. "/")
+end
+
+local function install(unpkg)
+	local pkg = require(unpkg)
+	if not pkg then
+		print("Package not found")
+		return 1
+	end
+	if not getPkg(pkg) then
+		pkg.compile()
+		makePkg(pkg)
+	end
+	if not checkSHA256(pkg) then
+		return 2
+	end
+	return installPkg(pkg)
+end
+
+if arg[1] == "install" then
+	if arg[2] == nil then
+		print("No package specified")
+		return 1
+	end
+	return install(arg[2])
+end

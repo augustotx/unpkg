@@ -1,0 +1,5 @@
+UNPKG_ROOT=$HOME/.unpkg
+UNPKG_CACHE=$UNPKG_ROOT/unpkg/cache
+
+stow -vt $UNPKG_ROOT/bin bin
+stow -vt $UNPKG_ROOT/unpkg unpkg
