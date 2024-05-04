@@ -1,7 +1,35 @@
 #!/bin/env lua
 local root = os.getenv("UNPKG_ROOT")
 local cache = os.getenv("UNPKG_CACHE")
-package.path = package.path .. ";" .. root .. "/unpkg/pkgs/?.lua"
+package.path = package.path .. ";" .. root .. "/unpkg/pkgs/?.lua;" .. root .. "/unpkg/?.lua"
+
+local function saveIndex(pkg)
+	local cmd = "tar -tvf "
+		.. cache
+		.. "/"
+		.. pkg.name
+		.. ".unpkg | awk '{print $6}' > "
+		.. cache
+		.. "/"
+		.. pkg.name
+		.. ".unpkg.index"
+	return os.execute(cmd)
+end
+
+local function getIndex(pkg)
+	local cmd = "cat " .. cache .. "/" .. pkg.name .. ".unpkg.index"
+	local f = assert(io.popen(cmd, "r"))
+	if f == nil then
+		return false
+	end
+	local lines = {}
+	for line in f:lines() do
+		table.insert(lines, line)
+	end
+	f:close()
+
+	return lines
+end
 
 local function getPkg(pkg)
 	local file = io.open(cache .. "/" .. pkg.name .. ".unpkg", "r")
@@ -29,6 +57,8 @@ end
 
 local function makePkg(pkg)
 	os.execute("cd " .. pkg.outDir .. "&& tar -czvf " .. cache .. "/" .. pkg.name .. ".unpkg *")
+	saveIndex(pkg)
+	os.execute("rm -rf " .. cache .. "/" .. pkg.name)
 	return createSHA256(pkg)
 end
 
@@ -43,13 +73,26 @@ local function checkSHA256(pkg)
 end
 
 local function installPkg(pkg)
-	return os.execute("tar -xzvf " .. cache .. "/" .. pkg.name .. ".unpkg" .. " -C " .. root .. "/")
+	return os.execute(
+		"tar -xzvf "
+			.. cache
+			.. "/"
+			.. pkg.name
+			.. ".unpkg"
+			.. " -C "
+			.. root
+			.. "/ > "
+			.. cache
+			.. "/"
+			.. pkg.name
+			.. ".install.log"
+	)
 end
 
 local function install(unpkg)
 	local pkg = require(unpkg)
 	if not pkg then
-		print("Package not found")
+		print("Package" .. unpkg .. "not found")
 		return 1
 	end
 	if not getPkg(pkg) then
@@ -59,7 +102,43 @@ local function install(unpkg)
 	if not checkSHA256(pkg) then
 		return 2
 	end
-	return installPkg(pkg)
+	installPkg(pkg)
+	print("Package " .. unpkg .. " installed")
+	return 0
+end
+
+local function remove(unpkg)
+	local pkg = require(unpkg)
+	if not pkg then
+		print("Package " .. unpkg .. " not found")
+		return 1
+	end
+	local files = getIndex(pkg)
+	if files == false or files == nil then
+		print("Error getting index file")
+		return 1
+	else
+		local i = 1
+		while i <= #files do
+			if files[i]:sub(-1) ~= "/" then
+				f = io.open(root .. "/" .. files[i], "r")
+				if f == nil then
+					print("Package " .. unpkg .. " not installed")
+					return 0
+				end
+			end
+			i = i + 1
+		end
+	end
+	local i = 1
+	while i <= #files do
+		if files[i]:sub(-1) ~= "/" then
+			os.execute("rm -f " .. root .. "/" .. files[i])
+		end
+		i = i + 1
+	end
+	print("Package " .. unpkg .. " removed")
+	return 0
 end
 
 if arg[1] == "install" then
@@ -68,4 +147,12 @@ if arg[1] == "install" then
 		return 1
 	end
 	return install(arg[2])
+elseif arg[1] == "remove" then
+	if arg[2] == nil then
+		print("No package specified")
+		return 1
+	end
+	return remove(arg[2])
+elseif arg[1] == nil then
+	print("No command specified")
 end
