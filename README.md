@@ -1,2 +1,2 @@
 # unpkg
-descentralized package manager
+decentralized package manager
